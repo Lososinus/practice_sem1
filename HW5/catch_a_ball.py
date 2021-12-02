@@ -21,7 +21,7 @@ class Particle:
         i = 0
         for pcl in gas:
             proj = pcl.x*wx+pcl.y*wy
-            #segm[i] = (proj-r[i], proj+r[i], pcl)
+            segm[i] = (proj-pcl.r, proj+pcl.r, pcl)
             i+=1
         segm.sort()
 
@@ -33,7 +33,7 @@ class Particle:
                 k+=1
         return intersect
     
-    def coll_pcl(pcl_1, pcl_2):
+    def calc_coll(pcl_1, pcl_2):
     	#Расчёт скоростей после упругого столкновени 2 частиц. Включает проверку на пересечение и сближение.
         scl_sqr_dr = (pcl_1.x - pcl_2.x)**2 + (pcl_1.y - pcl_2.y)**2
         if scl_sqr_dr < (pcl_1.r + pcl_2.r)**2:
@@ -127,10 +127,9 @@ class Button:
 
 
 # константы
-MAX_FPS = 40
+MAX_FPS = 30
 WIDTH = 1600
 HIGHT = 800
-GAME_T = 20000 #время раунда в мс
 FONT_COLOR = (200, 100, 200)
 # инициализация визуализации
 pg.init()
@@ -146,50 +145,86 @@ itr = 0
 dt = 0
 started  = False
 finished = False
-named  = False
+named    = False
+skipped  = False
 while not started:
     font.render_to(screen, (200, 300), "press _space_ to start".format(), FONT_COLOR, (0, 0, 0))
-	    
     pg.display.update()
     screen.fill((0, 0, 0), (0, 0, WIDTH, HIGHT+200))
-    
     for event in pg.event.get():
         if event.type == pg.QUIT:
             started  = True
             finished = True
-            named  = True
+            named    = True
+            skipped  = True
         elif event.type == pg.KEYDOWN:
             if event.key == pg.K_SPACE:
                 started  = True
-    
     fps = clock.get_fps()
 
-
+GAME_T = 40000 #время раунда в мс
+A = 1
+B = -15
+C = 100
+g = -200
 t0 = pg.time.get_ticks()
-x_lol, y_lol  = 0, 0
+x_click, y_click  = (0, 0)
+r_click = 40
+clicked = False
 score = 0
+total_balls = 0
+gas = set()
 while not finished:
-    font.render_to(screen, (5, 5 + 60*0), "gaming is happening".format(), FONT_COLOR, (0, 0, 0))
-    font.render_to(screen, (5, 5 + 60*1), "FPS: {0:5.2f}".format(fps), FONT_COLOR, (0, 0, 0))
-    font.render_to(screen, (5, 5 + 60*2), "Time left: {0:5.1f}".format( (GAME_T - (pg.time.get_ticks() - t0))/1000 ), FONT_COLOR, (0, 0, 0))
-    font.render_to(screen, (5, 5 + 60*3), "Score: {0:d}".format(score), FONT_COLOR, (0, 0, 0))
+    t_elapsed = (pg.time.get_ticks() - t0)/1000
+    while total_balls < A*t_elapsed**2 + B*t_elapsed + C:
+        total_balls += 1
+        gas.add( Particle(m=1, r=10, color=(200, 40, 40), x=WIDTH*random(), y=HIGHT*random(), vx=200*(2*random()-1), vy=200*(2*random()-1)) )
+    for pcl in gas:
+        pcl.move_dt(dt, g)
+        if pcl.vx>0 and pcl.x+pcl.r>WIDTH:
+            pcl.vx-= 2.0*pcl.vx
+        if pcl.vy>0 and pcl.y+pcl.r>HIGHT:
+            pcl.vy-= 2.0*pcl.vy
+        if pcl.vx<0 and pcl.x-pcl.r<0:
+            pcl.vx-= 2.0*pcl.vx
+        if pcl.vy<0 and pcl.y-pcl.r<0:
+            pcl.vy-= 2.0*pcl.vy
+    intersect = Particle.sweep_and_prune(gas, 1, 0)
+    for pair in intersect:
+        Particle.calc_coll(pair[0], pair[1])
+    caught = set()
+    if clicked:
+        for pcl in gas:
+            if (x_click - pcl.x)**2 + (y_click - pcl.y)**2 < (r_click + pcl.r)**2:
+                score += 1
+                caught.add(pcl)
+    gas.difference_update(caught)
     
-    pg.draw.circle(screen, (200, 200, 200), (round(x_lol), round(y_lol)), round(5), 1)
-    
+    for pcl in gas:
+        pcl.draw_pcl(screen)
+    if clicked:
+        pg.draw.circle(screen, (200, 200, 200), (x_click, y_click), r_click, 1)
+    font.render_to(screen, (5, 5 + 60*0), "gaming is happening".format(), FONT_COLOR, (0, 0, 0, 0))
+    font.render_to(screen, (5, 5 + 60*1), "FPS: {0:5.2f}".format(fps), FONT_COLOR, (0, 0, 0, 0))
+    font.render_to(screen, (5, 5 + 60*2), "Time left: {0:5.1f}".format( (GAME_T - (pg.time.get_ticks() - t0))/1000 ), FONT_COLOR, (0, 0, 0, 0))
+    font.render_to(screen, (5, 5 + 60*3), "Score: {0:d}".format(score), FONT_COLOR, (0, 0, 0, 0))
     pg.display.update()
     screen.fill((0, 0, 0))
     
+    clicked = False
     for event in pg.event.get():
         if event.type == pg.QUIT:
             started  = True
             finished = True
-            named  = True
-    
-    clock.tick(MAX_FPS)
+            named    = True
+            skipped  = True
+        elif event.type == pg.MOUSEBUTTONDOWN:
+            x_click, y_click  = event.pos
+            clicked = True
+    dt = clock.tick(MAX_FPS)/1000
     fps = clock.get_fps()
     finished = finished or pg.time.get_ticks() - t0 > GAME_T
 
-skipped = False
 player_name = ""
 pg.key.start_text_input()
 while not named:
@@ -205,20 +240,33 @@ while not named:
         if event.type == pg.QUIT:
             started  = True
             finished = True
-            named  = True
-        elif event.type == pg.TEXTINPUT:
+            named    = True
+            skipped  = True
+        elif event.type == pg.TEXTINPUT and event.text != pg.K_SPACE:
             player_name += event.text
         elif event.type == pg.KEYDOWN:
             if event.key == pg.K_BACKSPACE:
                 player_name = player_name[0:len(player_name)-1]
+            elif event.key == pg.K_RETURN:
+                named  = True
             elif event.key == pg.K_ESCAPE:
                 named  = True
                 skipped = True
     clock.tick(MAX_FPS)
     fps = clock.get_fps()
-    
+
 if not skipped:
-    pass
+    score_list = open("score list.txt", mode = 'r')
+    scores = [(score, player_name)]
+    for s in score_list:
+        note = s.split()
+        scores.append( (int(note[1]), note[0]) )
+    score_list.close()
+    scores.sort()
+    score_list = open("score list.txt", mode = 'w')
+    for note in scores:
+        score_list.write("{0:15s} {1:4d}\n".format(note[1], note[0]))
+    score_list.close()
 
 ft.quit()
 pg.quit()
